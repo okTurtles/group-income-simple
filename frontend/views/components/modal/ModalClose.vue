@@ -97,7 +97,6 @@ export default {
     outline: none;
   }
 
-  &:focus,
   &:hover {
     &::before {
       transform: translateX(-50%) translateY(-50%) rotate(0);

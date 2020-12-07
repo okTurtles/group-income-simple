@@ -91,7 +91,7 @@ $bannerGeneralHeight: 2.3rem;
 .l-page {
   position: relative;
   grid-area: l-page;
-  overflow-y: scroll;
+  overflow-y: auto;
   overflow-x: hidden; /* so sidebars can be hidden correctly */
 }
 

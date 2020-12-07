@@ -61,3 +61,18 @@ export function humanDate (
   }
   return new Date(datems).toLocaleDateString(locale, opts)
 }
+
+export function timeSince (datems: number, dateNow: number = Date.now()) {
+  const interval = dateNow - datems
+
+  if (interval >= DAYS_MILLIS * 2) {
+    return humanDate(datems)
+  }
+  if (interval >= DAYS_MILLIS) {
+    return '1d'
+  }
+  if (interval >= HOURS_MILLIS) {
+    return Math.floor(interval / HOURS_MILLIS) + 'h'
+  }
+  return Math.max(1, Math.floor(interval / MINS_MILLIS)) + 'm'
+}

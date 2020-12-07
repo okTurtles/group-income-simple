@@ -632,6 +632,15 @@ const getters = {
   },
   isDarkTheme (state) {
     return Colors[state.theme].theme === THEME_DARK
+  },
+  notificationsCount (state, getters) {
+    // TODO with real data
+    if (getters.groupMembersCount === 1) {
+      return 1
+    } else if (getters.groupMembersCount === 2) {
+      return 1
+    }
+    return 7
   }
 }
 

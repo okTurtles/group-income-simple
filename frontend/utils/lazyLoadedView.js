@@ -55,6 +55,8 @@ Vue.component('Appearence', () => import('../views/containers/user-settings/Appe
 Vue.component('AppLogs', () => import('../views/containers/user-settings/AppLogs.vue'))
 Vue.component('Troubleshooting', () => import('../views/containers/user-settings/Troubleshooting.vue'))
 
+Vue.component('NotificationsModal', () => import('../views/containers/notifications/NotificationsModal.vue'))
+
 // TODO Remove after design test period
 Vue.component('DSModalFullscreen', () => import('../views/containers/design-system/DSModalFullscreen.vue'))
 Vue.component('DSModalNested', () => import('../views/containers/design-system/DSModalNested.vue'))

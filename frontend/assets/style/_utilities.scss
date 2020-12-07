@@ -62,24 +62,24 @@ $fills: (
 
 .hide-desktop {
   @include desktop {
-    display: none;
+    display: none !important;
   }
 }
 
 .hide-touch {
   @include touch {
-    display: none;
+    display: none !important;
   }
 }
 
 .hide-phone {
   @include phone {
-    display: none;
+    display: none !important;
   }
 }
 
 .hide-tablet {
   @include tablet {
-    display: none;
+    display: none !important;
   }
 }

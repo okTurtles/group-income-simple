@@ -5,7 +5,9 @@ button.c-toggle.is-unstyled(
   :aria-label='L("Toggle navigation")'
 )
   i.icon-bars(v-if='element === "navigation"')
+    slot
   i.icon-info(v-else-if='element === "sidebar"')
+    slot
 </template>
 
 <script>

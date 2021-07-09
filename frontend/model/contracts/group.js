@@ -14,7 +14,7 @@ import {
 import { paymentStatusType, paymentType, PAYMENT_COMPLETED } from './payments/index.js'
 import * as Errors from '../errors.js'
 import { merge, deepEqualJSONType, omit } from '~/frontend/utils/giLodash.js'
-import { currentMonthstamp, ISOStringToMonthstamp, compareMonthstamps } from '~/frontend/utils/time.js'
+import { currentMonthstamp, ISOStringToMonthstamp, compareMonthstamps, addMonthsToDate, dateToMonthstamp, compareCycles } from '~/frontend/utils/time.js'
 import { vueFetchInitKV } from '~/frontend/views/utils/misc.js'
 import groupIncomeDistribution from '~/frontend/utils/distribution/group-income-distribution.js'
 import currencies, { saferFloat } from '~/frontend/views/utils/currencies.js'
@@ -104,6 +104,53 @@ function initFetchMonthlyPayments ({ meta, state, getters }) {
   const monthlyPayments = vueFetchInitKV(state.paymentsByMonth, monthstamp, initPaymentMonth({ getters }))
   clearOldPayments({ state })
   return monthlyPayments
+}
+
+function insertMonthlyCycleEvent (state, event) {
+  // Loop through missing monthly cycle events that happen before the 'event' parameter's cycle
+  let lastEvent = state.distributionEvents[state.distributionEvents.length - 1]
+  // Fills in multiple missing months when `while` instead of `if`.
+  if (compareCycles(event.data.when, lastEvent.data.when) > 0) {
+    // Add the missing monthly cycle event
+    const monthlyCycleEvent = {
+      type: 'startCycleEvent',
+      data: {
+        latePayments: [], // List to be populated later, by the events-parser
+        when: dateToMonthstamp(addMonthsToDate(dateToMonthstamp(lastEvent.data.when), 1))
+      }
+    }
+    state.distributionEvents.push(monthlyCycleEvent)
+    lastEvent = monthlyCycleEvent
+  }
+
+  state.distributionEvents = state.distributionEvents.filter((e) => {
+    return compareCycles(e.data.when, event.data.when) > -2
+  })
+
+  state.distributionEvents.push(event)
+}
+
+function memberDeclaredIncome (state, username, haveNeed, createdDate) {
+  insertMonthlyCycleEvent(state, {
+    type: 'haveNeedEvent',
+    data: {
+      name: username,
+      haveNeed,
+      when: createdDate
+    }
+  })
+}
+
+function memberLeaves (state, username, dateLeft) {
+  state.profiles[username].status = PROFILE_STATUS.REMOVED
+  state.profiles[username].departedDate = dateLeft
+  insertMonthlyCycleEvent(state, {
+    type: 'userExitsGroupEvent',
+    data: {
+      name: username,
+      when: dateLeft
+    }
+  })
 }
 
 sbp('chelonia/defineContract', {
@@ -245,6 +292,9 @@ sbp('chelonia/defineContract', {
       //       Just make sure the UI doesn't break if an exception is thrown, since this is
       //       bound to the UI in some location.
       return getters.groupSettings.mincomeCurrency && currencies[getters.groupSettings.mincomeCurrency].displayWithCurrency
+    },
+    groupDistributionEvents (state, getters) {
+      return getters.currentGroupState.distributionEvents
     }
   },
   // NOTE: All mutations must be atomic in their edits of the contract state.
@@ -275,6 +325,13 @@ sbp('chelonia/defineContract', {
         const initialState = merge({
           payments: {},
           paymentsByMonth: {},
+          distributionEvents: [{
+            type: 'startCycleEvent',
+            data: {
+              when: meta.createdDate,
+              latePayments: []
+            }
+          }],
           invites: {},
           proposals: {}, // hashes => {} TODO: this, see related TODOs in GroupProposal
           settings: {
@@ -368,9 +425,17 @@ sbp('chelonia/defineContract', {
             const toUser = vueFetchInitKV(fromUser, data.toUser, [])
             toUser.push(data.paymentHash)
           }
-          paymentMonth.lastAdjustedDistribution = groupIncomeDistribution({
-            state, getters, updateMonthstamp, adjusted: true
+          insertMonthlyCycleEvent(state, {
+            type: 'paymentEvent',
+            data: {
+              from: meta.username,
+              to: payment.data.toUser,
+              hash: data.paymentHash,
+              amount: payment.data.amount,
+              when: meta.createdDate
+            }
           })
+          paymentMonth.lastAdjustedDistribution = groupIncomeDistribution(getters.currentGroupState.distributionEvents, { mincomeAmount: getters.groupMincomeAmount, adjusted: true })
         }
       }
     },
@@ -503,8 +568,7 @@ sbp('chelonia/defineContract', {
         }
       },
       process ({ data, meta }, { state, getters }) {
-        state.profiles[data.member].status = PROFILE_STATUS.REMOVED
-        state.profiles[data.member].departedDate = meta.createdDate
+        memberLeaves(state, data.member, meta.createdDate)
       },
       sideEffect ({ data, contractID }, { state }) {
         const rootState = sbp('state/vuex/state')
@@ -538,8 +602,7 @@ sbp('chelonia/defineContract', {
         reason: string
       }),
       process ({ data, meta, contractID }, { state, getters }) {
-        state.profiles[meta.username].status = PROFILE_STATUS.REMOVED
-        state.profiles[meta.username].departedDate = meta.createdDate
+        memberLeaves(state, meta.username, meta.createdDate)
         sbp('gi.contracts/group/pushSideEffect', contractID,
           ['gi.contracts/group/removeMember/sideEffect', {
             meta,
@@ -671,6 +734,10 @@ sbp('chelonia/defineContract', {
               Vue.set(groupProfile, key, value)
           }
         }
+        if (data.incomeDetailsType) {
+          const haveNeed = data.incomeDetailsType === 'incomeAmount' ? data.incomeAmount - state.settings.mincomeAmount : data.pledgeAmount
+          memberDeclaredIncome(state, meta.username, haveNeed, meta.createdDate)
+        }
       }
     },
     'gi.contracts/group/updateAllVotingRules': {
@@ -696,7 +763,29 @@ sbp('chelonia/defineContract', {
         // }
       }
     },
-
+    'gi.contracts/group/resetMonth': {
+      validate: optional(string),
+      process ({ meta }, { state, getters }) {
+        // Loop through missing monthly cycle events that happen before the 'event' parameter's cycle
+        let lastEvent = state.distributionEvents[state.distributionEvents.length - 1]
+        // Fills in multiple missing months when `while` instead of `if`.
+        if (compareCycles(meta.createdDate, lastEvent.data.when) > 0) {
+          // Add the missing monthly cycle event
+          const monthlyCycleEvent = {
+            type: 'startCycleEvent',
+            data: {
+              latePayments: [], // List to be populated later, by the events-parser
+              when: meta.createdDate
+            }
+          }
+          state.distributionEvents.push(monthlyCycleEvent)
+          lastEvent = monthlyCycleEvent
+        }
+        state.distributionEvents = state.distributionEvents.filter((e) => {
+          return compareCycles(e.data.when, meta.createdDate) > -2
+        })
+      }
+    },
     ...(process.env.NODE_ENV === 'development' && {
       'gi.contracts/group/malformedMutation': {
         validate: objectOf({ errorType: string }),

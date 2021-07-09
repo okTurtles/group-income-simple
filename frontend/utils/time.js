@@ -5,10 +5,15 @@ export const MINS_MILLIS = 60000
 export const HOURS_MILLIS = 60 * MINS_MILLIS
 export const DAYS_MILLIS = 24 * HOURS_MILLIS
 
-export function dateToMonthstamp (date: Date): string {
+export function addMonthsToDate (date: string, months: number): Date {
+  const now = new Date(date)
+  return new Date(now.setMonth(now.getMonth() + months))
+}
+
+export function dateToMonthstamp (date: string | Date): string {
   // we could use Intl.DateTimeFormat but that doesn't support .format() on Android
   // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/DateTimeFormat/format
-  return date.toISOString().slice(0, 7)
+  return new Date(date).toISOString().slice(0, 7)
 }
 
 // TODO: to prevent conflicts among user timezones, we need
@@ -34,19 +39,29 @@ export function prevMonthstamp (monthstamp: string): string {
 }
 
 export function compareMonthstamps (monthstampA: string, monthstampB: string): number {
-  const A = dateFromMonthstamp(monthstampA).getTime()
-  const B = dateFromMonthstamp(monthstampB).getTime()
-  return A > B ? 1 : (A < B ? -1 : 0)
+  const dateA = dateFromMonthstamp(monthstampA)
+  const dateB = dateFromMonthstamp(monthstampB)
+  const A = dateA.getMonth() + dateA.getFullYear() * 12
+  const B = dateB.getMonth() + dateB.getFullYear() * 12
+  return A - B
+}
+
+export function compareCycles (whenEnd: string, whenStart: string): number {
+  return compareMonthstamps(dateToMonthstamp(whenEnd), dateToMonthstamp(whenStart))
 }
 
 export function compareISOTimestamps (a: string, b: string): number {
   const A = new Date(a).getTime()
   const B = new Date(b).getTime()
-  return A > B ? 1 : (A < B ? -1 : 0)
+  return A - B
 }
 
 export function lastDayOfMonth (date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0)
+}
+
+export function firstDayOfMonth (date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1)
 }
 
 // TODO: Provide locale fallback in case navigator does not exist (e.g. server, Mocha, etc...)
@@ -86,4 +101,10 @@ export function proximityDate (date: Date): string {
 export function getTime (date: Date): string {
   const t = new Date(date)
   return `${t.getHours()}:${t.getMinutes()}`
+}
+
+export function cycleAtDate (atDate: string | Date): number {
+  const now = new Date(atDate) // Just in case the parameter is a string type.
+  const partialCycles = now.getDate() / lastDayOfMonth(now).getDate()
+  return partialCycles
 }

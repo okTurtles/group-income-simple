@@ -17,7 +17,7 @@ import Colors from './colors.js'
 import { TypeValidatorError } from '~/frontend/utils/flowTyper.js'
 import { GIErrorUnrecoverable, GIErrorIgnoreAndBanIfGroup, GIErrorDropAndReprocess } from './errors.js'
 import { STATUS_OPEN, PROPOSAL_REMOVE_MEMBER } from './contracts/voting/constants.js'
-import { PAYMENT_COMPLETED } from '~/frontend/model/contracts/payments/index.js'
+// import { PAYMENT_COMPLETED } from '~/frontend/model/contracts/payments/index.js'
 import { VOTE_FOR } from '~/frontend/model/contracts/voting/rules.js'
 import * as _ from '~/frontend/utils/giLodash.js'
 import * as EVENTS from '~/frontend/utils/events.js'
@@ -26,9 +26,8 @@ import './contracts/mailbox.js'
 import './contracts/identity.js'
 import { captureLogsStart, captureLogsPause } from '~/frontend/model/captureLogs.js'
 import { THEME_LIGHT, THEME_DARK } from '~/frontend/utils/themes.js'
-import { uniq } from '~/frontend/utils/giLodash.js'
 import groupIncomeDistribution from '~/frontend/utils/distribution/group-income-distribution.js'
-import { currentMonthstamp, prevMonthstamp, dateFromMonthstamp, lastDayOfMonth } from '~/frontend/utils/time.js'
+import { currentMonthstamp, prevMonthstamp, dateFromMonthstamp, lastDayOfMonth, dateToMonthstamp } from '~/frontend/utils/time.js'
 import currencies from '~/frontend/views/utils/currencies.js'
 
 Vue.use(Vuex)
@@ -344,14 +343,14 @@ const getters = {
   },
   // used with graphs like those in the dashboard and in the income details modal
   groupIncomeDistribution (state, getters) {
-    return groupIncomeDistribution({ state, getters, monthstamp: currentMonthstamp() })
+    return groupIncomeDistribution(getters.currentGroupState.distributionEvents, { mincomeAmount: getters.groupMincomeAmount })
   },
   // adjusted version of groupIncomeDistribution, used by the payments system
   groupIncomeAdjustedDistribution (state, getters) {
-    return getters.groupIncomeAdjustedDistributionForMonth(currentMonthstamp())
+    return getters.groupIncomeAdjustedDistributionForMonth()
   },
   groupIncomeAdjustedDistributionForMonth (state, getters) {
-    return monthstamp => groupIncomeDistribution({ state, getters, monthstamp, adjusted: true })
+    return () => groupIncomeDistribution(getters.currentGroupState.distributionEvents, { mincomeAmount: getters.groupMincomeAmount, adjusted: true })
   },
   // TODO: this is insane, rewrite it and make it cleaner/better
   ourPayments (state, getters) {
@@ -525,47 +524,31 @@ const getters = {
     return { sent, todo, late, received, toBeReceived }
   },
   ourPaymentsSummary (state, getters) {
-    const ourPayments = getters.ourPayments
-    if (!ourPayments) return
-    const { todo, sent, toBeReceived, received } = ourPayments
-    const isCompleted = (p) => p.data.status === PAYMENT_COMPLETED
-    const partialPaymentsCount = (list) => list.filter(p => p.partial).length
-    const getUniqPCount = (users) => {
-      // We need to filter the partial payments already done (sent/received).
-      // E.G. We need to send 4 payments. We've sent 1 full payment and another
-      // in 2 parts. The total must be 2, instead of 3. A quick way to solve this
-      // is by listing all usernames we sent to and count the uniq ones.
-      return uniq(users).length
+    const currentCycle = currentMonthstamp()
+    const recentEvents = JSON.parse(JSON.stringify(getters.currentGroupState.distributionEvents))
+    const events = recentEvents.filter((event) => { return dateToMonthstamp(event.data.when) === currentCycle })
+    const paymentEvents = events.filter((event) => { return event.type === 'paymentEvent' })
+    const isNeeder = getters.ourGroupProfile.incomeDetailsType === 'incomeAmount'
+    const ourUsername = getters.ourUsername
+    const ourPaymentEvents = paymentEvents.filter((event) => {
+      return isNeeder ? event.data.to === ourUsername : event.data.from === ourUsername
+    })
+    const isOurPayment = (payment) => {
+      return isNeeder ? payment.to === ourUsername : payment.from === ourUsername
     }
-
-    if (getters.ourGroupProfile.incomeDetailsType === 'incomeAmount') {
-      const receivedCompleted = received.filter(isCompleted)
-      const pPartials = partialPaymentsCount(toBeReceived)
-      const pByUser = {
-        toBeReceived: toBeReceived.map(p => p.from),
-        received: received.map(p => p.meta.username)
-      }
-      return {
-        paymentsDone: getUniqPCount(pByUser.received) - pPartials,
-        hasPartials: pPartials > 0,
-        paymentsTotal: getUniqPCount([...pByUser.toBeReceived, ...pByUser.received]),
-        amountDone: receivedCompleted.reduce((total, p) => total + p.data.amount, 0),
-        amountTotal: toBeReceived.reduce((total, p) => total + p.amount, 0) + received.reduce((total, p) => total + p.data.amount, 0)
-      }
-    } else {
-      const sentCompleted = sent.filter(isCompleted)
-      const pPartials = partialPaymentsCount(todo)
-      const pByUser = {
-        todo: todo.map(p => p.to),
-        sent: sent.map(p => p.data.toUser)
-      }
-      return {
-        paymentsDone: getUniqPCount(pByUser.sent) - pPartials,
-        hasPartials: pPartials > 0,
-        paymentsTotal: getUniqPCount([...pByUser.todo, ...pByUser.sent]),
-        amountDone: sentCompleted.reduce((total, p) => total + p.data.amount, 0),
-        amountTotal: todo.reduce((total, p) => total + p.amount, 0) + sent.reduce((total, p) => total + p.data.amount, 0)
-      }
+    const ourUnadjustedPayments = getters.groupIncomeDistribution.filter(isOurPayment)
+    const ourAdjustedPayments = getters.groupIncomeAdjustedDistribution.filter(isOurPayment)
+    const paymentsDone = ourUnadjustedPayments.length - ourAdjustedPayments.length
+    const hasPartials = ourPaymentEvents.length > paymentsDone
+    const paymentsTotal = ourUnadjustedPayments.length
+    const amountTotal = ourUnadjustedPayments.reduce((acc, payment) => acc + payment.amount, 0)
+    const amountDone = amountTotal - ourAdjustedPayments.reduce((acc, payment) => acc + payment.amount, 0)
+    return {
+      paymentsDone,
+      hasPartials,
+      paymentsTotal,
+      amountDone,
+      amountTotal
     }
   },
   // list of group names and contractIDs

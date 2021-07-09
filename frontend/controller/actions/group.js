@@ -141,5 +141,6 @@ export default (sbp('sbp/selectors/register', {
   ...encryptedAction('gi.actions/group/updateSettings', L('Failed to update group settings.')),
   ...encryptedAction('gi.actions/group/removeMember', (params, e) => L('Failed to remove {member}: {reportError}', { member: params.member, ...LError(e) })),
   ...encryptedAction('gi.actions/group/removeOurselves', (params, e) => L('Failed to leave group. {codeError}', { codeError: e.message })),
-  ...encryptedAction('gi.actions/group/updateAllVotingRules', (params, e) => L('Failed to update voting rules. {codeError}', { codeError: e.message }))
+  ...encryptedAction('gi.actions/group/updateAllVotingRules', (params, e) => L('Failed to update voting rules. {codeError}', { codeError: e.message })),
+  ...encryptedAction('gi.actions/group/resetMonth', L('Failed to reset month distribution cycle.'))
 }): string[])
